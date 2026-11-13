@@ -1,0 +1,12 @@
+{
+  "name": "identity-lab",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "postCreateCommand": "pip install -r requirements.txt && [ -f .env ] || cp .env.example .env",
+  "forwardPorts": [5000],
+  "portsAttributes": {
+    "5000": { "label": "identity-lab", "onAutoForward": "notify" }
+  },
+  "customizations": {
+    "vscode": { "extensions": ["ms-python.python"] }
+  }
+}

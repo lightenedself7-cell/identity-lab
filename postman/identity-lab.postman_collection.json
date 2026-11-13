@@ -1,0 +1,526 @@
+{
+  "info": {
+    "name": "Identity Lab",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "OAuth 2.0, Okta Management API and SCIM tests for the identity-lab repo."
+  },
+  "item": [
+    {
+      "name": "A. OAuth 2.0 client credentials + protected API",
+      "item": [
+        {
+          "name": "1. Discovery: authorization server metadata",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{issuer}}/.well-known/oauth-authorization-server",
+            "description": "Every OAuth client starts here. Shows token endpoint, JWKS location, supported grants."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const m = pm.response.json(); pm.collectionVariables.set('jwks_uri', m.jwks_uri);",
+                  "pm.test('supports client_credentials', () => pm.expect(m.grant_types_supported).to.include('client_credentials'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Get token (client credentials)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{issuer}}/v1/token",
+            "description": "Machine-to-machine. Client authenticates with its own secret, no user involved.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                },
+                {
+                  "key": "scope",
+                  "value": "reports.read"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{api_client_id}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{api_client_secret}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const t = pm.response.json(); pm.collectionVariables.set('access_token', t.access_token);",
+                  "const p = JSON.parse(atob(t.access_token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));",
+                  "console.log('access token claims', p);",
+                  "pm.test('aud is api://default', () => pm.expect(p.aud).to.eql('api://default'));",
+                  "pm.test('has reports.read', () => pm.expect(p.scp).to.include('reports.read'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Call protected API with token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{app_url}}/api/reports",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 access granted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Call protected API without token (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{app_url}}/api/reports",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('WWW-Authenticate header present', () => pm.response.to.have.header('WWW-Authenticate'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Wrong scope (expect 400 invalid_scope from Okta)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{issuer}}/v1/token",
+            "description": "Troubleshooting demo: read the error and error_description fields.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                },
+                {
+                  "key": "scope",
+                  "value": "payments.write"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{api_client_id}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{api_client_secret}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Okta rejects unknown/ungranted scope', () => pm.expect(pm.response.code).to.be.oneOf([400,401]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Introspect token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{issuer}}/v1/introspect",
+            "description": "Remote validation. Compare with the API's local JWT validation against JWKS.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}"
+                },
+                {
+                  "key": "token_type_hint",
+                  "value": "access_token"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{api_client_id}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{api_client_secret}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('active', () => pm.expect(pm.response.json().active).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Revoke token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{issuer}}/v1/revoke",
+            "description": "Then re-run 6 (inactive) and 3 (still 200!). Explain why: local JWT validation can't see revocation until expiry.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}"
+                },
+                {
+                  "key": "token_type_hint",
+                  "value": "access_token"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{api_client_id}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{api_client_secret}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "B. Okta Management API (SSWS token)",
+      "item": [
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "SSWS {{okta_api_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{okta_org_url}}/api/v1/users?limit=25",
+            "description": ""
+          }
+        },
+        {
+          "name": "Find user by login",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "SSWS {{okta_api_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{okta_org_url}}/api/v1/users?search=profile.login eq \"alice@lab.example\"",
+            "description": ""
+          }
+        },
+        {
+          "name": "List groups",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "SSWS {{okta_api_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{okta_org_url}}/api/v1/groups",
+            "description": ""
+          }
+        },
+        {
+          "name": "List apps",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "SSWS {{okta_api_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{okta_org_url}}/api/v1/apps?filter=status eq \"ACTIVE\"",
+            "description": ""
+          }
+        },
+        {
+          "name": "App assignments for an app",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "SSWS {{okta_api_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{okta_org_url}}/api/v1/apps/{{app_id}}/users",
+            "description": "Set app_id from the List apps response."
+          }
+        },
+        {
+          "name": "System log: last 20 provisioning events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "SSWS {{okta_api_token}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{okta_org_url}}/api/v1/logs?filter=eventType sw \"application.provision\"&limit=20",
+            "description": "Where you look first when SCIM 'did nothing'."
+          }
+        }
+      ]
+    },
+    {
+      "name": "C. SCIM endpoint (direct)",
+      "item": [
+        {
+          "name": "ServiceProviderConfig (no auth needed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{scim_url}}/ServiceProviderConfig",
+            "description": ""
+          }
+        },
+        {
+          "name": "Create user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{scim_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/scim+json"
+              }
+            ],
+            "url": "{{scim_url}}/Users",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemas\": [\n    \"urn:ietf:params:scim:schemas:core:2.0:User\"\n  ],\n  \"userName\": \"postman@lab.example\",\n  \"name\": {\n    \"givenName\": \"Post\",\n    \"familyName\": \"Man\"\n  },\n  \"emails\": [\n    {\n      \"value\": \"postman@lab.example\",\n      \"primary\": true\n    }\n  ],\n  \"active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('scim_user_id', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter user (what Okta calls first)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{scim_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/scim+json"
+              }
+            ],
+            "url": "{{scim_url}}/Users?filter=userName eq \"postman@lab.example\"",
+            "description": ""
+          }
+        },
+        {
+          "name": "Deactivate user (Okta PATCH shape)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{scim_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/scim+json"
+              }
+            ],
+            "url": "{{scim_url}}/Users/{{scim_user_id}}",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schemas\": [\n    \"urn:ietf:params:scim:api:messages:2.0:PatchOp\"\n  ],\n  \"Operations\": [\n    {\n      \"op\": \"replace\",\n      \"value\": {\n        \"active\": false\n      }\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Bad token (expect 401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer wrong"
+              }
+            ],
+            "url": "{{scim_url}}/Users",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "jwks_uri",
+      "value": ""
+    },
+    {
+      "key": "scim_user_id",
+      "value": ""
+    },
+    {
+      "key": "app_id",
+      "value": ""
+    }
+  ]
+}

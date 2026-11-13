@@ -1,0 +1,30 @@
+# Which tunnel runs is set by COMPOSE_PROFILES in .env:
+#   quick -> random https://xxx.trycloudflare.com URL, no account, changes on every restart
+#   named -> your own stable hostname (e.g. scim-lab.yourdomain.com), needs TUNNEL_TOKEN
+services:
+  app:
+    build: .
+    env_file: .env
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/srv/data
+      - ./reports:/srv/reports
+
+  # Get the URL with:  docker compose logs tunnel | grep trycloudflare
+  tunnel:
+    profiles: ["quick"]
+    image: cloudflare/cloudflared:2025.8.1
+    command: tunnel --no-autoupdate --url http://app:5000
+    depends_on:
+      - app
+
+  # Hostname and path routing are configured in the Cloudflare dashboard, not here.
+  tunnel-named:
+    profiles: ["named"]
+    image: cloudflare/cloudflared:2025.8.1
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on:
+      - app

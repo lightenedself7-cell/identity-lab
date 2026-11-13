@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{% if not user %}<meta http-equiv="refresh" content="10">{% endif %}
+<title>Identity Lab</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#e2e2dc; --ok:#1f7a4d; --off:#a33; --accent:#2b4c7e; }
+  * { box-sizing:border-box }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--ink) }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); background:var(--card); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px }
+  h1 { font-size:18px; margin:0 } h2 { font-size:15px; margin:0 0 12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted) }
+  main { max-width:1100px; margin:0 auto; padding:24px; display:grid; gap:20px; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)) }
+  section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:18px; overflow:auto }
+  .wide { grid-column:1/-1 }
+  a.btn { display:inline-block; padding:8px 14px; border-radius:6px; background:var(--accent); color:#fff; text-decoration:none; font-weight:600; margin-right:8px }
+  a.btn.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent) }
+  .pill { font-size:12px; padding:2px 8px; border-radius:99px; border:1px solid var(--line) }
+  .on { color:var(--ok); border-color:var(--ok) } .off { color:var(--off); border-color:var(--off) }
+  table { width:100%; border-collapse:collapse; font-size:14px } td,th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top }
+  pre { background:#f1f1ec; padding:12px; border-radius:6px; font-size:12.5px; overflow:auto; margin:0 }
+  code { font-size:13px } .muted { color:var(--muted) }
+</style>
+</head>
+<body>
+<header>
+  <h1>Identity Lab <span class="muted">· Okta target app</span></h1>
+  <div>
+    <span class="pill {{ 'on' if oidc_ready else 'off' }}">OIDC</span>
+    <span class="pill {{ 'on' if saml_ready else 'off' }}">SAML</span>
+    <span class="pill {{ 'on' if scim_ready else 'off' }}">SCIM</span>
+  </div>
+</header>
+<main>
+  <section class="wide">
+    {% if user %}
+      <h2>Signed in via {{ user.protocol }}</h2>
+      <p><a class="btn ghost" href="/logout">Log out</a></p>
+      <h2>{{ 'ID token claims' if user.protocol == 'OIDC' else 'SAML assertion: NameID and attributes' }}</h2>
+      <pre>{{ user.claims | tojson(indent=2) }}</pre>
+      {% if user.access_token_claims %}
+        <h2 style="margin-top:16px">Access token claims <span class="muted">(decoded for display only)</span></h2>
+        <pre>{{ user.access_token_claims | tojson(indent=2) }}</pre>
+      {% endif %}
+    {% else %}
+      <h2>Sign in</h2>
+      <a class="btn" href="/login/oidc">Sign in with OIDC</a>
+      <a class="btn ghost" href="/saml/login">Sign in with SAML</a>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>SCIM users ({{ users|length }})</h2>
+    <table><tr><th>userName</th><th>Name</th><th>Active</th></tr>
+    {% for u in users %}
+      <tr><td><code>{{ u.userName }}</code></td><td>{{ u.name.givenName if u.name }} {{ u.name.familyName if u.name }}</td>
+      <td><span class="pill {{ 'on' if u.active else 'off' }}">{{ 'active' if u.active else 'deactivated' }}</span></td></tr>
+    {% else %}<tr><td colspan="3" class="muted">No users provisioned yet. Assign a user to the app in Okta.</td></tr>{% endfor %}
+    </table>
+  </section>
+
+  <section>
+    <h2>SCIM groups ({{ groups|length }})</h2>
+    <table><tr><th>Group</th><th>Members</th></tr>
+    {% for g in groups %}
+      <tr><td>{{ g.displayName }}</td><td>{% for m in g.members %}<code>{{ user_name(m.value) }}</code>{% if not loop.last %}, {% endif %}{% else %}<span class="muted">none</span>{% endfor %}</td></tr>
+    {% else %}<tr><td colspan="2" class="muted">No groups pushed yet. Use Okta's "Push Groups" tab.</td></tr>{% endfor %}
+    </table>
+  </section>
+
+  <section class="wide">
+    <h2>Provisioning event log</h2>
+    <table><tr><th>Time (UTC)</th><th>Event</th><th>Detail</th></tr>
+    {% for e in events %}
+      <tr><td class="muted">{{ e.at }}</td><td><code>{{ e.action }}</code></td><td>{{ e.detail }}</td></tr>
+    {% else %}<tr><td colspan="3" class="muted">No SCIM calls received yet.</td></tr>{% endfor %}
+    </table>
+  </section>
+</main>
+</body>
+</html>
